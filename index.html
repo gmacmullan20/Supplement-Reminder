@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Supplements">
+<meta name="theme-color" content="#0d0f0e">
+<title>Supplement Reminders</title>
+<link rel="manifest" href="manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0d0f0e;--surface:#141714;--card:#1a1d1a;--border:#2a2f2a;--accent:#a8e063;--accent-dim:#3a5a1a;--text:#e8ede8;--muted:#6a7a6a;--danger:#e06363}
+body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;padding-bottom:env(safe-area-inset-bottom)}
+.app{max-width:480px;margin:0 auto;padding:56px 20px 100px}
+header{margin-bottom:32px;animation:fadeUp 0.5s ease both}
+.header-label{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+h1{font-family:'DM Serif Display',serif;font-size:34px;line-height:1.1}
+h1 em{color:var(--accent);font-style:italic}
+.header-sub{margin-top:6px;font-size:10px;color:var(--muted)}
+.notif-banner{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:24px;font-size:11px;color:var(--muted);animation:fadeUp 0.5s 0.1s ease both}
+.notif-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s}
+.notif-dot.granted{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.notif-dot.denied{background:var(--danger)}
+.notif-btn{margin-left:auto;background:var(--accent);color:#0d0f0e;border:none;border-radius:6px;padding:6px 12px;font-family:'DM Mono',monospace;font-size:10px;font-weight:500;cursor:pointer}
+.section-title{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:10px}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border)}
+.supplements-list{display:flex;flex-direction:column;gap:8px;margin-bottom:28px}
+.supp-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;animation:fadeUp 0.4s ease both}
+.supp-icon{width:42px;height:42px;border-radius:11px;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.supp-info{flex:1;min-width:0}
+.supp-name{font-size:13px;font-weight:500;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.supp-meta{font-size:10px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.supp-time{color:var(--accent);font-weight:500}
+.supp-dose{background:var(--surface);padding:2px 6px;border-radius:4px;border:1px solid var(--border)}
+.supp-actions{display:flex;gap:6px;align-items:center}
+.toggle-btn{width:40px;height:22px;border-radius:11px;border:none;background:var(--border);cursor:pointer;position:relative;transition:background .3s;flex-shrink:0}
+.toggle-btn.on{background:var(--accent-dim)}
+.toggle-btn::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:var(--muted);top:3px;left:3px;transition:transform .3s,background .3s}
+.toggle-btn.on::after{transform:translateX(18px);background:var(--accent)}
+.icon-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px}
+.upcoming{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:24px;animation:fadeUp 0.5s 0.15s ease both}
+.upcoming-row{display:flex;justify-content:space-between;font-size:11px;padding:5px 0;border-bottom:1px solid var(--border);color:var(--muted)}
+.upcoming-row:last-child{border-bottom:none}
+.upcoming-row span:first-child{color:var(--text)}
+.countdown{color:var(--accent)}
+.form-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;animation:fadeUp 0.5s 0.2s ease both}
+.form-row{margin-bottom:14px}
+.form-label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;display:block}
+.form-input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;-webkit-appearance:none}
+.form-input:focus{border-color:var(--accent)}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.emoji-picker{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.emoji-opt{width:38px;height:38px;border-radius:9px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center}
+.emoji-opt.selected{border-color:var(--accent);background:#1a2a0a}
+.add-btn{width:100%;padding:14px;background:var(--accent);color:#0d0f0e;border:none;border-radius:10px;font-family:'DM Serif Display',serif;font-size:16px;cursor:pointer;margin-top:4px}
+.empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:11px;line-height:2}
+.empty-icon{font-size:36px;margin-bottom:10px}
+.toast{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(80px);background:var(--accent);color:#0d0f0e;padding:10px 20px;border-radius:20px;font-size:11px;font-weight:500;z-index:1000;transition:transform .3s ease;white-space:nowrap;pointer-events:none}
+.toast.show{transform:translateX(-50%) translateY(0)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+select.form-input{color:var(--text)}
+option{background:#1a1d1a}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="header-label">Daily Protocol</div>
+    <h1>Supplement<br><em>Reminders</em></h1>
+    <p class="header-sub">Add to Home Screen for best experience</p>
+  </header>
+  <div class="notif-banner" id="notifBanner">
+    <div class="notif-dot" id="notifDot"></div>
+    <span id="notifText">Enable notifications to get reminded</span>
+    <button class="notif-btn" id="notifBtn" onclick="requestNotifPermission()">Enable</button>
+  </div>
+  <div id="upcomingSection" style="display:none">
+    <div class="section-title">Next up</div>
+    <div class="upcoming" id="upcomingList"></div>
+  </div>
+  <div class="section-title">Your supplements</div>
+  <div class="supplements-list" id="suppList"></div>
+  <div class="section-title" style="margin-top:8px">Add supplement</div>
+  <div class="form-card">
+    <div class="form-row">
+      <label class="form-label">Name</label>
+      <input class="form-input" id="suppName" placeholder="e.g. Magnesium Glycinate"/>
+    </div>
+    <div class="form-row">
+      <label class="form-label">Icon</label>
+      <div class="emoji-picker" id="emojiPicker"></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label class="form-label">Dose</label>
+        <input class="form-input" id="suppDose" placeholder="e.g. 400mg"/>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Time</label>
+        <input class="form-input" id="suppTime" type="time" value="21:30"/>
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="form-label">Schedule</label>
+      <select class="form-input" id="suppDays">
+        <option value="daily">Every day</option>
+        <option value="weekdays">Weekdays only</option>
+        <option value="weekends">Weekends only</option>
+      </select>
+    </div>
+    <button class="add-btn" onclick="addSupplement()">+ Add to protocol</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const EMOJIS=['💊','🌿','🧬','⚗️','🫧','🌙','☀️','🔋','🧪','💉','🫀','🧠','🦴','❤️','🌱','⚡'];
+let selectedEmoji='💊';
+let supplements=JSON.parse(localStorage.getItem('supps_v2')||'null');
+let swReg=null;
+if(!supplements){supplements=[{id:1,name:'Magnesium',dose:'400mg',time:'21:30',days:'daily',icon:'🌿',enabled:true},{id:2,name:'Apigenin',dose:'50mg',time:'21:30',days:'daily',icon:'🌱',enabled:true},{id:3,name:'Glycine',dose:'2g',time:'21:30',days:'daily',icon:'🧬',enabled:true}];save()}
+function save(){localStorage.setItem('supps_v2',JSON.stringify(supplements))}
+function genId(){return Date.now()+Math.random()}
+async function registerSW(){if(!('serviceWorker' in navigator))return;try{swReg=await navigator.serviceWorker.register('sw.js');console.log('SW registered')}catch(e){console.warn('SW failed:',e)}}
+function buildEmojiPicker(){const p=document.getElementById('emojiPicker');p.innerHTML='';EMOJIS.forEach(e=>{const b=document.createElement('button');b.className='emoji-opt'+(e===selectedEmoji?' selected':'');b.textContent=e;b.onclick=()=>{selectedEmoji=e;buildEmojiPicker()};p.appendChild(b)})}
+function updateNotifUI(){const perm=Notification.permission;const dot=document.getElementById('notifDot');const text=document.getElementById('notifText');const btn=document.getElementById('notifBtn');if(perm==='granted'){dot.className='notif-dot granted';text.textContent='Push notifications are active';btn.style.display='none'}else if(perm==='denied'){dot.className='notif-dot denied';text.textContent='Blocked — enable in Settings > Safari';btn.style.display='none'}else{dot.className='notif-dot';text.textContent='Enable notifications to get reminded';btn.style.display=''}}
+async function requestNotifPermission(){if(!('Notification' in window)){showToast('Notifications not supported');return}const r=await Notification.requestPermission();updateNotifUI();if(r==='granted'){showToast('Notifications enabled!');scheduleAll()}else{showToast('Enable in Settings > Safari > Notifications')}}
+function msUntilNext(timeStr,days){const now=new Date();const[h,m]=timeStr.split(':').map(Number);const target=new Date(now);target.setHours(h,m,0,0);const dow=now.getDay();const isWeekday=dow>=1&&dow<=5;const isWeekend=dow===0||dow===6;const todayValid=days==='daily'||(days==='weekdays'&&isWeekday)||(days==='weekends'&&isWeekend);if(todayValid&&target>now)return target-now;for(let i=1;i<=7;i++){const next=new Date(target);next.setDate(next.getDate()+i);const nd=next.getDay();const v=days==='daily'||(days==='weekdays'&&nd>=1&&nd<=5)||(days==='weekends'&&(nd===0||nd===6));if(v)return next-now}return null}
+function scheduleAll(){if(Notification.permission!=='granted')return;supplements.forEach(s=>{if(!s.enabled)return;const ms=msUntilNext(s.time,s.days);if(ms==null)return;if(swReg?.active){swReg.active.postMessage({type:'SCHEDULE',id:s.id,name:s.name,dose:s.dose,ms})}else{setTimeout(()=>{new Notification(`Time for ${s.name}`,{body:s.dose?`Take your ${s.dose} dose now.`:'Time to take your supplement.'})},ms)}})}
+function formatCountdown(ms){if(ms<60000)return'very soon';const m=Math.floor(ms/60000),h=Math.floor(m/60),mins=m%60;return h>0?`in ${h}h ${mins}m`:`in ${mins}m`}
+function renderUpcoming(){const enabled=supplements.filter(s=>s.enabled);const sec=document.getElementById('upcomingSection');if(!enabled.length){sec.style.display='none';return}sec.style.display='';const rows=enabled.map(s=>({s,ms:msUntilNext(s.time,s.days)})).filter(x=>x.ms!=null).sort((a,b)=>a.ms-b.ms).slice(0,3);document.getElementById('upcomingList').innerHTML=rows.map(({s,ms})=>`<div class="upcoming-row"><span>${s.icon} ${s.name}</span><span>${s.time} · <span class="countdown">${formatCountdown(ms)}</span></span></div>`).join('')}
+function render(){const list=document.getElementById('suppList');if(!supplements.length){list.innerHTML='<div class="empty"><div class="empty-icon">🧪</div>No supplements yet.<br>Add your first one below.</div>';document.getElementById('upcomingSection').style.display='none';return}list.innerHTML=supplements.map((s,i)=>`<div class="supp-card" style="animation-delay:${i*0.05}s"><div class="supp-icon">${s.icon}</div><div class="supp-info"><div class="supp-name">${s.name}</div><div class="supp-meta"><span class="supp-time">${s.time}</span>${s.dose?`<span class="supp-dose">${s.dose}</span>`:''}<span>${s.days==='daily'?'every day':s.days}</span></div></div><div class="supp-actions"><button class="toggle-btn ${s.enabled?'on':''}" onclick="toggleSupp(${s.id})"></button><button class="icon-btn" onclick="deleteSupp(${s.id})">✕</button></div></div>`).join('');renderUpcoming()}
+function toggleSupp(id){const s=supplements.find(x=>x.id===id);if(!s)return;s.enabled=!s.enabled;save();render();scheduleAll();showToast(s.enabled?`${s.name} reminders on`:`${s.name} paused`)}
+function deleteSupp(id){const s=supplements.find(x=>x.id===id);supplements=supplements.filter(x=>x.id!==id);save();render();scheduleAll();if(s)showToast(`Removed ${s.name}`)}
+function addSupplement(){const name=document.getElementById('suppName').value.trim();const dose=document.getElementById('suppDose').value.trim();const time=document.getElementById('suppTime').value;const days=document.getElementById('suppDays').value;if(!name){showToast('Enter a supplement name');return}if(!time){showToast('Set a reminder time');return}supplements.push({id:genId(),name,dose,time,days,icon:selectedEmoji,enabled:true});save();render();scheduleAll();showToast(`${selectedEmoji} ${name} added!`);document.getElementById('suppName').value='';document.getElementById('suppDose').value='';document.getElementById('suppTime').value='21:30';document.getElementById('suppDays').value='daily';selectedEmoji='💊';buildEmojiPicker()}
+let toastTimer;
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2500)}
+setInterval(renderUpcoming,60000);
+buildEmojiPicker();
+updateNotifUI();
+render();
+registerSW().then(()=>scheduleAll());
+</script>
+</body>
+</html>
