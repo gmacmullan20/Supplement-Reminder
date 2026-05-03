@@ -137,7 +137,8 @@ let supplements=JSON.parse(localStorage.getItem('supps_v2')||'null');
 let swReg=null;
 let editingId=null;
 
-if(!supplements){supplements=[{id:1,name:'Magnesium',dose:'400mg',time:'21:30',days:'daily',icon:'🌿',enabled:true},{id:2,name:'Apigenin',dose:'50mg',time:'21:30',days:'daily',icon:'🌱',enabled:true},{id:3,name:'Glycine',dose:'2g',time:'21:30',days:'daily',icon:'🧬',enabled:true}];save()}
+if(!supplements){supplements=[];save()}
+
 
 function save(){localStorage.setItem('supps_v2',JSON.stringify(supplements))}
 function genId(){return Date.now()+Math.random()}
