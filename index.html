@@ -60,7 +60,19 @@ h1 em{color:var(--accent);font-style:italic}
 .empty-icon{font-size:36px;margin-bottom:10px}
 .toast{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(80px);background:var(--accent);color:#0d0f0e;padding:10px 20px;border-radius:20px;font-size:11px;font-weight:500;z-index:1000;transition:transform .3s ease;white-space:nowrap;pointer-events:none}
 .toast.show{transform:translateX(-50%) translateY(0)}
+
+/* Edit modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:100;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn 0.2s ease}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:20px 20px 0 0;padding:24px 20px calc(24px + env(safe-area-inset-bottom));width:100%;max-width:480px;animation:slideUp 0.3s ease}
+.modal-title{font-family:'DM Serif Display',serif;font-size:20px;margin-bottom:20px;color:var(--text)}
+.modal-title em{color:var(--accent);font-style:italic}
+.modal-actions{display:flex;gap:10px;margin-top:6px}
+.save-btn{flex:1;padding:13px;background:var(--accent);color:#0d0f0e;border:none;border-radius:10px;font-family:'DM Serif Display',serif;font-size:15px;cursor:pointer}
+.cancel-btn{padding:13px 18px;background:var(--surface);color:var(--muted);border:1px solid var(--border);border-radius:10px;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer}
+
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 select.form-input{color:var(--text)}
 option{background:#1a1d1a}
 </style>
@@ -114,31 +126,157 @@ option{background:#1a1d1a}
     <button class="add-btn" onclick="addSupplement()">+ Add to protocol</button>
   </div>
 </div>
+
 <div class="toast" id="toast"></div>
+
 <script>
 const EMOJIS=['💊','🌿','🧬','⚗️','🫧','🌙','☀️','🔋','🧪','💉','🫀','🧠','🦴','❤️','🌱','⚡'];
 let selectedEmoji='💊';
+let editEmoji='💊';
 let supplements=JSON.parse(localStorage.getItem('supps_v2')||'null');
 let swReg=null;
+let editingId=null;
+
 if(!supplements){supplements=[{id:1,name:'Magnesium',dose:'400mg',time:'21:30',days:'daily',icon:'🌿',enabled:true},{id:2,name:'Apigenin',dose:'50mg',time:'21:30',days:'daily',icon:'🌱',enabled:true},{id:3,name:'Glycine',dose:'2g',time:'21:30',days:'daily',icon:'🧬',enabled:true}];save()}
+
 function save(){localStorage.setItem('supps_v2',JSON.stringify(supplements))}
 function genId(){return Date.now()+Math.random()}
-async function registerSW(){if(!('serviceWorker' in navigator))return;try{swReg=await navigator.serviceWorker.register('sw.js');console.log('SW registered')}catch(e){console.warn('SW failed:',e)}}
-function buildEmojiPicker(){const p=document.getElementById('emojiPicker');p.innerHTML='';EMOJIS.forEach(e=>{const b=document.createElement('button');b.className='emoji-opt'+(e===selectedEmoji?' selected':'');b.textContent=e;b.onclick=()=>{selectedEmoji=e;buildEmojiPicker()};p.appendChild(b)})}
+
+async function registerSW(){if(!('serviceWorker' in navigator))return;try{swReg=await navigator.serviceWorker.register('sw.js')}catch(e){console.warn('SW failed:',e)}}
+
+function buildEmojiPicker(targetEmoji,pickerId,onPick){
+  const p=document.getElementById(pickerId);
+  p.innerHTML='';
+  EMOJIS.forEach(e=>{
+    const b=document.createElement('button');
+    b.className='emoji-opt'+(e===targetEmoji?' selected':'');
+    b.textContent=e;
+    b.onclick=()=>onPick(e);
+    p.appendChild(b);
+  });
+}
+
 function updateNotifUI(){const perm=Notification.permission;const dot=document.getElementById('notifDot');const text=document.getElementById('notifText');const btn=document.getElementById('notifBtn');if(perm==='granted'){dot.className='notif-dot granted';text.textContent='Push notifications are active';btn.style.display='none'}else if(perm==='denied'){dot.className='notif-dot denied';text.textContent='Blocked — enable in Settings > Safari';btn.style.display='none'}else{dot.className='notif-dot';text.textContent='Enable notifications to get reminded';btn.style.display=''}}
+
 async function requestNotifPermission(){if(!('Notification' in window)){showToast('Notifications not supported');return}const r=await Notification.requestPermission();updateNotifUI();if(r==='granted'){showToast('Notifications enabled!');scheduleAll()}else{showToast('Enable in Settings > Safari > Notifications')}}
+
 function msUntilNext(timeStr,days){const now=new Date();const[h,m]=timeStr.split(':').map(Number);const target=new Date(now);target.setHours(h,m,0,0);const dow=now.getDay();const isWeekday=dow>=1&&dow<=5;const isWeekend=dow===0||dow===6;const todayValid=days==='daily'||(days==='weekdays'&&isWeekday)||(days==='weekends'&&isWeekend);if(todayValid&&target>now)return target-now;for(let i=1;i<=7;i++){const next=new Date(target);next.setDate(next.getDate()+i);const nd=next.getDay();const v=days==='daily'||(days==='weekdays'&&nd>=1&&nd<=5)||(days==='weekends'&&(nd===0||nd===6));if(v)return next-now}return null}
+
 function scheduleAll(){if(Notification.permission!=='granted')return;supplements.forEach(s=>{if(!s.enabled)return;const ms=msUntilNext(s.time,s.days);if(ms==null)return;if(swReg?.active){swReg.active.postMessage({type:'SCHEDULE',id:s.id,name:s.name,dose:s.dose,ms})}else{setTimeout(()=>{new Notification(`Time for ${s.name}`,{body:s.dose?`Take your ${s.dose} dose now.`:'Time to take your supplement.'})},ms)}})}
+
 function formatCountdown(ms){if(ms<60000)return'very soon';const m=Math.floor(ms/60000),h=Math.floor(m/60),mins=m%60;return h>0?`in ${h}h ${mins}m`:`in ${mins}m`}
+
 function renderUpcoming(){const enabled=supplements.filter(s=>s.enabled);const sec=document.getElementById('upcomingSection');if(!enabled.length){sec.style.display='none';return}sec.style.display='';const rows=enabled.map(s=>({s,ms:msUntilNext(s.time,s.days)})).filter(x=>x.ms!=null).sort((a,b)=>a.ms-b.ms).slice(0,3);document.getElementById('upcomingList').innerHTML=rows.map(({s,ms})=>`<div class="upcoming-row"><span>${s.icon} ${s.name}</span><span>${s.time} · <span class="countdown">${formatCountdown(ms)}</span></span></div>`).join('')}
-function render(){const list=document.getElementById('suppList');if(!supplements.length){list.innerHTML='<div class="empty"><div class="empty-icon">🧪</div>No supplements yet.<br>Add your first one below.</div>';document.getElementById('upcomingSection').style.display='none';return}list.innerHTML=supplements.map((s,i)=>`<div class="supp-card" style="animation-delay:${i*0.05}s"><div class="supp-icon">${s.icon}</div><div class="supp-info"><div class="supp-name">${s.name}</div><div class="supp-meta"><span class="supp-time">${s.time}</span>${s.dose?`<span class="supp-dose">${s.dose}</span>`:''}<span>${s.days==='daily'?'every day':s.days}</span></div></div><div class="supp-actions"><button class="toggle-btn ${s.enabled?'on':''}" onclick="toggleSupp(${s.id})"></button><button class="icon-btn" onclick="deleteSupp(${s.id})">✕</button></div></div>`).join('');renderUpcoming()}
+
+function render(){
+  const list=document.getElementById('suppList');
+  if(!supplements.length){list.innerHTML='<div class="empty"><div class="empty-icon">🧪</div>No supplements yet.<br>Add your first one below.</div>';document.getElementById('upcomingSection').style.display='none';return}
+  list.innerHTML=supplements.map((s,i)=>`
+    <div class="supp-card" style="animation-delay:${i*0.05}s">
+      <div class="supp-icon">${s.icon}</div>
+      <div class="supp-info">
+        <div class="supp-name">${s.name}</div>
+        <div class="supp-meta">
+          <span class="supp-time">${s.time}</span>
+          ${s.dose?`<span class="supp-dose">${s.dose}</span>`:''}
+          <span>${s.days==='daily'?'every day':s.days}</span>
+        </div>
+      </div>
+      <div class="supp-actions">
+        <button class="icon-btn" onclick="openEdit(${s.id})" title="Edit">✎</button>
+        <button class="toggle-btn ${s.enabled?'on':''}" onclick="toggleSupp(${s.id})"></button>
+        <button class="icon-btn" onclick="deleteSupp(${s.id})">✕</button>
+      </div>
+    </div>
+  `).join('');
+  renderUpcoming();
+}
+
+function openEdit(id){
+  const s=supplements.find(x=>x.id===id);
+  if(!s)return;
+  editingId=id;
+  editEmoji=s.icon;
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay';
+  overlay.id='editOverlay';
+  overlay.innerHTML=`
+    <div class="modal">
+      <div class="modal-title">Edit <em>${s.name}</em></div>
+      <div class="form-row">
+        <label class="form-label">Name</label>
+        <input class="form-input" id="editName" value="${s.name}"/>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Icon</label>
+        <div class="emoji-picker" id="editEmojiPicker"></div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row">
+          <label class="form-label">Dose</label>
+          <input class="form-input" id="editDose" value="${s.dose||''}"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Time</label>
+          <input class="form-input" id="editTime" type="time" value="${s.time}"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Schedule</label>
+        <select class="form-input" id="editDays">
+          <option value="daily" ${s.days==='daily'?'selected':''}>Every day</option>
+          <option value="weekdays" ${s.days==='weekdays'?'selected':''}>Weekdays only</option>
+          <option value="weekends" ${s.days==='weekends'?'selected':''}>Weekends only</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="cancel-btn" onclick="closeEdit()">Cancel</button>
+        <button class="save-btn" onclick="saveEdit()">Save changes</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  buildEmojiPicker(editEmoji,'editEmojiPicker',(e)=>{editEmoji=e;buildEmojiPicker(editEmoji,'editEmojiPicker',(e2)=>{editEmoji=e2;buildEmojiPicker(editEmoji,'editEmojiPicker',arguments.callee)})});
+  // Simpler emoji picker for edit modal
+  refreshEditEmoji();
+}
+
+function refreshEditEmoji(){
+  buildEmojiPicker(editEmoji,'editEmojiPicker',(e)=>{editEmoji=e;refreshEditEmoji()});
+}
+
+function closeEdit(){
+  const o=document.getElementById('editOverlay');
+  if(o)o.remove();
+  editingId=null;
+}
+
+function saveEdit(){
+  const s=supplements.find(x=>x.id===editingId);
+  if(!s)return;
+  const name=document.getElementById('editName').value.trim();
+  const dose=document.getElementById('editDose').value.trim();
+  const time=document.getElementById('editTime').value;
+  const days=document.getElementById('editDays').value;
+  if(!name){showToast('Enter a name');return}
+  if(!time){showToast('Set a time');return}
+  s.name=name;s.dose=dose;s.time=time;s.days=days;s.icon=editEmoji;
+  save();closeEdit();render();scheduleAll();
+  showToast(`${editEmoji} ${name} updated!`);
+}
+
 function toggleSupp(id){const s=supplements.find(x=>x.id===id);if(!s)return;s.enabled=!s.enabled;save();render();scheduleAll();showToast(s.enabled?`${s.name} reminders on`:`${s.name} paused`)}
 function deleteSupp(id){const s=supplements.find(x=>x.id===id);supplements=supplements.filter(x=>x.id!==id);save();render();scheduleAll();if(s)showToast(`Removed ${s.name}`)}
-function addSupplement(){const name=document.getElementById('suppName').value.trim();const dose=document.getElementById('suppDose').value.trim();const time=document.getElementById('suppTime').value;const days=document.getElementById('suppDays').value;if(!name){showToast('Enter a supplement name');return}if(!time){showToast('Set a reminder time');return}supplements.push({id:genId(),name,dose,time,days,icon:selectedEmoji,enabled:true});save();render();scheduleAll();showToast(`${selectedEmoji} ${name} added!`);document.getElementById('suppName').value='';document.getElementById('suppDose').value='';document.getElementById('suppTime').value='21:30';document.getElementById('suppDays').value='daily';selectedEmoji='💊';buildEmojiPicker()}
+
+function addSupplement(){const name=document.getElementById('suppName').value.trim();const dose=document.getElementById('suppDose').value.trim();const time=document.getElementById('suppTime').value;const days=document.getElementById('suppDays').value;if(!name){showToast('Enter a supplement name');return}if(!time){showToast('Set a reminder time');return}supplements.push({id:genId(),name,dose,time,days,icon:selectedEmoji,enabled:true});save();render();scheduleAll();showToast(`${selectedEmoji} ${name} added!`);document.getElementById('suppName').value='';document.getElementById('suppDose').value='';document.getElementById('suppTime').value='21:30';document.getElementById('suppDays').value='daily';selectedEmoji='💊';buildEmojiPicker(selectedEmoji,'emojiPicker',(e)=>{selectedEmoji=e;buildEmojiPicker(selectedEmoji,'emojiPicker',arguments.callee)}); refreshAddEmoji()}
+
+function refreshAddEmoji(){buildEmojiPicker(selectedEmoji,'emojiPicker',(e)=>{selectedEmoji=e;refreshAddEmoji()})}
+
 let toastTimer;
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2500)}
+
 setInterval(renderUpcoming,60000);
-buildEmojiPicker();
+refreshAddEmoji();
 updateNotifUI();
 render();
 registerSW().then(()=>scheduleAll());
