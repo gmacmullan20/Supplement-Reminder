@@ -8,9 +8,6 @@
 <meta name="apple-mobile-web-app-title" content="Supplements">
 <meta name="theme-color" content="#0d0f0e">
 <title>Supplement Reminders</title>
-
-  <title>Supplement Reminders</title>
-
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -145,11 +142,33 @@ let editingId=null;
 
 if(!supplements){supplements=[];save()}
 
-
 function save(){localStorage.setItem('supps_v2',JSON.stringify(supplements))}
 function genId(){return Date.now()+Math.random()}
 
-async function registerSW(){if(!('serviceWorker' in navigator))return;try{swReg=await navigator.serviceWorker.register('sw.js')}catch(e){console.warn('SW failed:',e)}}
+// ── FIX 1: Wait until SW is fully active before posting messages ──
+async function registerSW(){
+  if(!('serviceWorker' in navigator))return;
+  try{
+    swReg=await navigator.serviceWorker.register('sw.js');
+    // If a new SW is waiting or installing, wait for it to activate
+    await waitForSWActive();
+    // Re-schedule whenever a new SW takes control
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      scheduleAll();
+    });
+  }catch(e){console.warn('SW failed:',e)}
+}
+
+function waitForSWActive(){
+  return new Promise(resolve=>{
+    // Already have an active controller — done
+    if(navigator.serviceWorker.controller)return resolve();
+    // Wait for the SW to activate and claim this page
+    navigator.serviceWorker.addEventListener('controllerchange',resolve,{once:true});
+    // Fallback: resolve after 3 seconds regardless
+    setTimeout(resolve,3000);
+  });
+}
 
 function buildEmojiPicker(targetEmoji,pickerId,onPick){
   const p=document.getElementById(pickerId);
@@ -163,21 +182,121 @@ function buildEmojiPicker(targetEmoji,pickerId,onPick){
   });
 }
 
-function updateNotifUI(){const perm=Notification.permission;const dot=document.getElementById('notifDot');const text=document.getElementById('notifText');const btn=document.getElementById('notifBtn');if(perm==='granted'){dot.className='notif-dot granted';text.textContent='Push notifications are active';btn.style.display='none'}else if(perm==='denied'){dot.className='notif-dot denied';text.textContent='Blocked — enable in Settings > Safari';btn.style.display='none'}else{dot.className='notif-dot';text.textContent='Enable notifications to get reminded';btn.style.display=''}}
+function updateNotifUI(){
+  const perm=Notification.permission;
+  const dot=document.getElementById('notifDot');
+  const text=document.getElementById('notifText');
+  const btn=document.getElementById('notifBtn');
+  if(perm==='granted'){
+    dot.className='notif-dot granted';
+    text.textContent='Push notifications are active';
+    btn.style.display='none';
+  }else if(perm==='denied'){
+    dot.className='notif-dot denied';
+    text.textContent='Blocked — enable in Settings > Safari';
+    btn.style.display='none';
+  }else{
+    dot.className='notif-dot';
+    text.textContent='Enable notifications to get reminded';
+    btn.style.display='';
+  }
+}
 
-async function requestNotifPermission(){if(!('Notification' in window)){showToast('Notifications not supported');return}const r=await Notification.requestPermission();updateNotifUI();if(r==='granted'){showToast('Notifications enabled!');scheduleAll()}else{showToast('Enable in Settings > Safari > Notifications')}}
+async function requestNotifPermission(){
+  if(!('Notification' in window)){showToast('Notifications not supported');return}
+  const r=await Notification.requestPermission();
+  updateNotifUI();
+  if(r==='granted'){showToast('Notifications enabled!');scheduleAll()}
+  else{showToast('Enable in Settings > Safari > Notifications')}
+}
 
-function msUntilNext(timeStr,days){const now=new Date();const[h,m]=timeStr.split(':').map(Number);const target=new Date(now);target.setHours(h,m,0,0);const dow=now.getDay();const isWeekday=dow>=1&&dow<=5;const isWeekend=dow===0||dow===6;const todayValid=days==='daily'||(days==='weekdays'&&isWeekday)||(days==='weekends'&&isWeekend);if(todayValid&&target>now)return target-now;for(let i=1;i<=7;i++){const next=new Date(target);next.setDate(next.getDate()+i);const nd=next.getDay();const v=days==='daily'||(days==='weekdays'&&nd>=1&&nd<=5)||(days==='weekends'&&(nd===0||nd===6));if(v)return next-now}return null}
+// ── FIX 2: msUntilNext now always returns the correct next future time ──
+function msUntilNext(timeStr,days){
+  const now=new Date();
+  const[h,m]=timeStr.split(':').map(Number);
 
-function scheduleAll(){if(Notification.permission!=='granted')return;supplements.forEach(s=>{if(!s.enabled)return;const ms=msUntilNext(s.time,s.days);if(ms==null)return;if(swReg?.active){swReg.active.postMessage({type:'SCHEDULE',id:s.id,name:s.name,dose:s.dose,ms})}else{setTimeout(()=>{new Notification(`Time for ${s.name}`,{body:s.dose?`Take your ${s.dose} dose now.`:'Time to take your supplement.'})},ms)}})}
+  // Check today first, then the next 7 days
+  for(let i=0;i<=7;i++){
+    const candidate=new Date(now);
+    candidate.setDate(now.getDate()+i);
+    candidate.setHours(h,m,0,0);
 
-function formatCountdown(ms){if(ms<60000)return'very soon';const m=Math.floor(ms/60000),h=Math.floor(m/60),mins=m%60;return h>0?`in ${h}h ${mins}m`:`in ${mins}m`}
+    // Must be in the future
+    if(candidate<=now)continue;
 
-function renderUpcoming(){const enabled=supplements.filter(s=>s.enabled);const sec=document.getElementById('upcomingSection');if(!enabled.length){sec.style.display='none';return}sec.style.display='';const rows=enabled.map(s=>({s,ms:msUntilNext(s.time,s.days)})).filter(x=>x.ms!=null).sort((a,b)=>a.ms-b.ms).slice(0,3);document.getElementById('upcomingList').innerHTML=rows.map(({s,ms})=>`<div class="upcoming-row"><span>${s.icon} ${s.name}</span><span>${s.time} · <span class="countdown">${formatCountdown(ms)}</span></span></div>`).join('')}
+    const dow=candidate.getDay();
+    const valid=
+      days==='daily'||
+      (days==='weekdays'&&dow>=1&&dow<=5)||
+      (days==='weekends'&&(dow===0||dow===6));
+
+    if(valid)return candidate-now;
+  }
+  return null;
+}
+
+// ── FIX 3: scheduleAll reliably uses active SW or falls back gracefully ──
+function scheduleAll(){
+  if(Notification.permission!=='granted')return;
+  supplements.forEach(s=>{
+    if(!s.enabled)return;
+    const ms=msUntilNext(s.time,s.days);
+    if(ms==null)return;
+
+    const sw=swReg&&(swReg.active||navigator.serviceWorker.controller);
+    if(sw){
+      sw.postMessage({type:'SCHEDULE',id:s.id,name:s.name,dose:s.dose,ms});
+    }else{
+      // Fallback: in-page timeout (only reliable when app stays open)
+      setTimeout(()=>{
+        new Notification(`Time for ${s.name}`,{
+          body:s.dose?`Take your ${s.dose} dose now.`:'Time to take your supplement.',
+          icon:'icon-192.png'
+        });
+      },ms);
+    }
+  });
+}
+
+function formatCountdown(ms){
+  if(ms<60000)return'very soon';
+  const m=Math.floor(ms/60000),h=Math.floor(m/60),mins=m%60;
+  if(h>=24){
+    const d=Math.floor(h/24),hrs=h%24;
+    return d===1&&hrs===0?'tomorrow':`in ${d}d ${hrs}h`;
+  }
+  return h>0?`in ${h}h ${mins}m`:`in ${mins}m`;
+}
+
+// ── FIX 4: renderUpcoming shows ALL enabled supplements with their next time ──
+function renderUpcoming(){
+  const enabled=supplements.filter(s=>s.enabled);
+  const sec=document.getElementById('upcomingSection');
+  if(!enabled.length){sec.style.display='none';return}
+
+  const rows=enabled
+    .map(s=>({s,ms:msUntilNext(s.time,s.days)}))
+    .filter(x=>x.ms!=null)
+    .sort((a,b)=>a.ms-b.ms);
+
+  if(!rows.length){sec.style.display='none';return}
+
+  sec.style.display='';
+  document.getElementById('upcomingList').innerHTML=rows.map(({s,ms})=>`
+    <div class="upcoming-row">
+      <span>${s.icon} ${s.name}</span>
+      <span>${s.time} · <span class="countdown">${formatCountdown(ms)}</span></span>
+    </div>
+  `).join('');
+}
 
 function render(){
   const list=document.getElementById('suppList');
-  if(!supplements.length){list.innerHTML='<div class="empty"><div class="empty-icon">🧪</div>No supplements yet.<br>Add your first one below.</div>';document.getElementById('upcomingSection').style.display='none';return}
+  if(!supplements.length){
+    list.innerHTML='<div class="empty"><div class="empty-icon">🧪</div>No supplements yet.<br>Add your first one below.</div>';
+    document.getElementById('upcomingSection').style.display='none';
+    return;
+  }
   list.innerHTML=supplements.map((s,i)=>`
     <div class="supp-card" style="animation-delay:${i*0.05}s">
       <div class="supp-icon">${s.icon}</div>
@@ -243,8 +362,6 @@ function openEdit(id){
     </div>
   `;
   document.body.appendChild(overlay);
-  buildEmojiPicker(editEmoji,'editEmojiPicker',(e)=>{editEmoji=e;buildEmojiPicker(editEmoji,'editEmojiPicker',(e2)=>{editEmoji=e2;buildEmojiPicker(editEmoji,'editEmojiPicker',arguments.callee)})});
-  // Simpler emoji picker for edit modal
   refreshEditEmoji();
 }
 
@@ -272,20 +389,60 @@ function saveEdit(){
   showToast(`${editEmoji} ${name} updated!`);
 }
 
-function toggleSupp(id){const s=supplements.find(x=>x.id===id);if(!s)return;s.enabled=!s.enabled;save();render();scheduleAll();showToast(s.enabled?`${s.name} reminders on`:`${s.name} paused`)}
-function deleteSupp(id){const s=supplements.find(x=>x.id===id);supplements=supplements.filter(x=>x.id!==id);save();render();scheduleAll();if(s)showToast(`Removed ${s.name}`)}
+function toggleSupp(id){
+  const s=supplements.find(x=>x.id===id);
+  if(!s)return;
+  s.enabled=!s.enabled;
+  save();render();scheduleAll();
+  showToast(s.enabled?`${s.name} reminders on`:`${s.name} paused`);
+}
 
-function addSupplement(){const name=document.getElementById('suppName').value.trim();const dose=document.getElementById('suppDose').value.trim();const time=document.getElementById('suppTime').value;const days=document.getElementById('suppDays').value;if(!name){showToast('Enter a supplement name');return}if(!time){showToast('Set a reminder time');return}supplements.push({id:genId(),name,dose,time,days,icon:selectedEmoji,enabled:true});save();render();scheduleAll();showToast(`${selectedEmoji} ${name} added!`);document.getElementById('suppName').value='';document.getElementById('suppDose').value='';document.getElementById('suppTime').value='21:30';document.getElementById('suppDays').value='daily';selectedEmoji='💊';buildEmojiPicker(selectedEmoji,'emojiPicker',(e)=>{selectedEmoji=e;buildEmojiPicker(selectedEmoji,'emojiPicker',arguments.callee)}); refreshAddEmoji()}
+function deleteSupp(id){
+  const s=supplements.find(x=>x.id===id);
+  supplements=supplements.filter(x=>x.id!==id);
+  save();render();scheduleAll();
+  if(s)showToast(`Removed ${s.name}`);
+}
 
-function refreshAddEmoji(){buildEmojiPicker(selectedEmoji,'emojiPicker',(e)=>{selectedEmoji=e;refreshAddEmoji()})}
+function addSupplement(){
+  const name=document.getElementById('suppName').value.trim();
+  const dose=document.getElementById('suppDose').value.trim();
+  const time=document.getElementById('suppTime').value;
+  const days=document.getElementById('suppDays').value;
+  if(!name){showToast('Enter a supplement name');return}
+  if(!time){showToast('Set a reminder time');return}
+  supplements.push({id:genId(),name,dose,time,days,icon:selectedEmoji,enabled:true});
+  save();render();scheduleAll();
+  showToast(`${selectedEmoji} ${name} added!`);
+  document.getElementById('suppName').value='';
+  document.getElementById('suppDose').value='';
+  document.getElementById('suppTime').value='21:30';
+  document.getElementById('suppDays').value='daily';
+  selectedEmoji='💊';
+  refreshAddEmoji();
+}
+
+function refreshAddEmoji(){
+  buildEmojiPicker(selectedEmoji,'emojiPicker',(e)=>{selectedEmoji=e;refreshAddEmoji()});
+}
 
 let toastTimer;
-function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2500)}
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2500);
+}
 
+// Refresh countdown display every minute
 setInterval(renderUpcoming,60000);
+
+// Init
 refreshAddEmoji();
 updateNotifUI();
 render();
+// Register SW, wait for it to be active, then schedule
 registerSW().then(()=>scheduleAll());
 </script>
 </body>
